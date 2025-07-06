@@ -4,8 +4,6 @@
 #' @import iml
 #' @import data.table
 #' @import parallel
-#' @import tensorflow
-#' @import keras
 #' @import anchors
 NULL
 

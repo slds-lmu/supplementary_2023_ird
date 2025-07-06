@@ -5,9 +5,9 @@ make_param_set = function(dt, subset = NULL) {
       lb = if (col_name %in% names(subset) && !is.na(subset[[col_name]][1])) subset[[col_name]][1] else min(column)
       ub = if (col_name %in% names(subset) && !is.na(subset[[col_name]][2])) subset[[col_name]][2] else max(column)
       if (is.double(column)){
-        param = ParamDbl$new(col_name, lower = lb, upper = ub)
+        param = p_dbl(lower = lb, upper = ub)
       } else if (is.integer(column)) {
-        param = ParamInt$new(col_name, lower = lb, upper = ub)
+        param = p_int(lower = lb, upper = ub)
       }
     } else {
       if (is.character(column)) {
@@ -15,13 +15,13 @@ make_param_set = function(dt, subset = NULL) {
       } else {
         lev = if (col_name %in% names(subset)) as.character(subset[[col_name]]) else levels(column)[unique(column[!is.na(column)])]
       }
-      param = ParamFct$new(col_name, levels = lev)
+      param = p_fct(levels = lev)
     }
     param
   })
-
-  ps = ParamSet$new(param_list)
-  ps$trafo = function(x, param_set, predictor) {
+  names(param_list) = names(dt)
+  ps = do.call(paradox::ps, param_list)
+  ps$extra_trafo = function(x, param_set, predictor) {
     if (is.null(predictor)) {
       stop("trafo() of parameter set needs a 'predictor' input")
     }
@@ -37,21 +37,20 @@ make_param_set = function(dt, subset = NULL) {
 }
 
 update_box = function(current_box, j, lower = NULL, upper = NULL, val = NULL, complement = TRUE) {
-
   new_box = current_box$clone(deep = TRUE)
   if (!is.null(lower) && !is.na(lower)) {
-    new_box$params[[j]]$lower = lower
+    new_box$subspaces()[[j]]$lower[[1]] = lower
   }
 
   if (!is.null(upper) && !is.na(upper)) {
-    new_box$params[[j]]$upper = upper
+    new_box$subspaces()[[j]]$upper[[1]] = upper
   }
 
   if (all(!is.null(val)) && all(!is.na(val))) {
     if (complement) {
-      val = unique(c(new_box$params[[j]]$levels, val))
+      val = unique(c(new_box$subspaces()[[j]]$levels[[1]], val))
     }
-    new_box$params[[j]]$levels = val
+    new_box$subspaces()[[j]]$levels[[1]] = val
   }
   return(new_box)
 }
@@ -61,7 +60,7 @@ evaluate_box = function(box, x_interest, predictor, n_samples, desired_range, st
   ## generate new data
   if (strategy == "random") {
     dt = SamplerUnif$new(box)$sample(n = n_samples)$data
-    dt = box$trafo(dt, predictor = predictor)
+    dt = box$extra_trafo(dt, predictor = predictor)
   } else if (strategy == "extremes") {
     low = private$box$lower
     low = low[!is.na(low)]
@@ -159,7 +158,7 @@ make_ice_curve_area = function(predictor, x_interest, grid_size, ps, surface, de
   x_interest_sub = x_interest[, !names(x_interest) %in% names(ps$class), with = FALSE]
   instance_dt = x_interest_sub[rep(1:nrow(x_interest_sub), nrow(exp_grid))]
   grid_dt = cbind(instance_dt, exp_grid)
-  grid_dt = ps$trafo(grid_dt, predictor = predictor)
+  grid_dt = ps$extra_trafo(grid_dt, predictor = predictor)
   if (surface == "prediction") {
     pred = predictor$predict(grid_dt)[[1]]
   } else if (surface == "range") {
@@ -257,8 +256,7 @@ transform_for_explanation = function(data, predictor, x_interest, version = 2, f
   return(res)
 }
 
-get_max_box = function (x_interest, fixed_features, predictor, param_set, desired_range, resolution = 500L) {
-  # <FIXME:> is 500L a good default??
+get_max_box = function (x_interest, fixed_features, predictor, param_set, desired_range, resolution =500L) {
   luval = lapply(predictor$data$feature.names, function(i_name) {
     val_name = x_interest[[i_name]]
     type_name = predictor$data$feature.types[[i_name]]
@@ -267,12 +265,12 @@ get_max_box = function (x_interest, fixed_features, predictor, param_set, desire
       return(c(val_name, val_name))
     }
     ps_sub = param_set$clone(deep = TRUE)
-    ps_sub$subset(i_name)
+    ps_sub = ps_sub$subset(i_name)
     grid1d = paradox:::generate_design_grid(ps_sub, resolution = resolution)$data
     x_interest_sub = data.table::copy(x_interest)
     x_interest_sub[, (i_name):=NULL]
     dt = data.table::data.table(grid1d, x_interest_sub)
-    param_set$trafo(dt, predictor = predictor)
+    param_set$extra_trafo(dt, predictor = predictor)
     dt[, "pred"] = predictor$predict(dt)
     # select closest grid points to x_interest$i_name with a prediction outside desired range
     # If all grid point lower value of x_interest have a prediction within desired range --> lower = NA
@@ -297,15 +295,15 @@ get_max_box = function (x_interest, fixed_features, predictor, param_set, desire
 
 identify_in_box = function(box, data) {
   data = data.table::setDT(data)
-  data = data[, names(box$params), with = FALSE]
+  data = data[, box$data$id, with = FALSE]
   check_inbox = function(col, paramval) {
-    if (class(paramval)[1] %in% c("ParamInt", "ParamDbl")) {
+    if (paramval$class %in% c("ParamInt", "ParamDbl")) {
       col >= paramval$lower & col <= paramval$upper
     } else {
-      col %in% paramval$levels
+      col %in% paramval$levels[[1]]
     }
   }
-  datainbox = data[, Map(check_inbox, .SD, box$params), .SDcols = names(data)]
+  datainbox = data[, Map(check_inbox, .SD, box$subspaces()), .SDcols = names(data)]
   apply(datainbox, 1, all)
 }
 

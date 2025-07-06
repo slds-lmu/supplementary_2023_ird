@@ -76,13 +76,6 @@ postprocb = postproc$find_box(x_interest = x_interest, desired_range = c(0.3, 0.
   box_init = mbb$box)
 postprocb$plot_surface(feature_names = c("duration", "credit.amount"), surface = "range")
 
-#----- compute regional descriptor with MAIRE ----
-mair = Maire$new(predictor = pred, num_of_iterations = 100L,
-  convergence = TRUE, quiet = FALSE, strategy = "traindata")
-system.time({mairb = mair$find_box(x_interest = x_interest, desired_range = c(0.3, 0.6))})
-mairb$evaluate()
-mairb$plot_surface(feature_names = c("duration", "credit.amount"), surface = "range")
-
 #---- postprocess maire's box -----
 postproc = PostProcessing$new(predictor = pred, subbox_relsize = 0.1)
 postprocb = postproc$find_box(x_interest = x_interest, desired_range = c(0, 0.5), box_init = mairb$box)
